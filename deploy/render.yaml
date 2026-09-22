@@ -1,0 +1,57 @@
+# ==============================================================================
+# TaskPilot Render Infrastructure Blueprint (render.yaml)
+# ==============================================================================
+services:
+  # FastAPI Python Backend Web Service
+  - type: web
+    name: taskpilot-backend
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: starter
+    region: oregon
+    healthCheckPath: /api/health
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: PORT
+        value: 8000
+      - key: ENVIRONMENT
+        value: production
+      - key: MONGO_URI
+        sync: false
+      - key: MONGO_DB_NAME
+        value: taskpilot_db
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ALGORITHM
+        value: HS256
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: 1440
+      - key: REFRESH_TOKEN_EXPIRE_DAYS
+        value: 7
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL
+        value: llama-3.3-70b-versatile
+      - key: CORS_ORIGINS
+        value: '["https://taskpilot.vercel.app"]'
+
+  # React Vite Frontend Web Service (or deploy to Vercel)
+  - type: web
+    name: taskpilot-frontend
+    runtime: docker
+    dockerfilePath: ./frontend/Dockerfile
+    dockerContext: ./frontend
+    plan: starter
+    region: oregon
+    envVars:
+      - key: VITE_API_BASE_URL
+        fromService:
+          name: taskpilot-backend
+          type: web
+          property: host
+      - key: VITE_APP_NAME
+        value: TaskPilot
+      - key: VITE_ENABLE_AI_FEATURES
+        value: "true"

@@ -1,0 +1,41 @@
+# ==============================================================================
+# TaskPilot Backend - Docker Ignore File
+# ==============================================================================
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Environment files and credentials (CRITICAL: prevent secret leakage)
+.env
+.env.*
+!.env.example
+
+# Virtual environments
+.venv
+venv/
+ENV/
+env/
+
+# Testing & Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# IDE and Editor directories
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Git version control
+.git/
+.gitignore
+
+# Scratch scripts & temporary test artifacts
+scratch/
+tmp/
+*.log

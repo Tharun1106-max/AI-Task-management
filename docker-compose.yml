@@ -1,0 +1,154 @@
+# ==============================================================================
+# TaskPilot Full-Stack Docker Compose Orchestration
+# Services: Frontend (Nginx/React) + Backend (FastAPI) + MongoDB (Replica Set)
+# ==============================================================================
+
+version: "3.8"
+
+services:
+  # ----------------------------------------------------------------------------
+  # 1. MongoDB Database with Single-Node Replica Set (rs0)
+  # ----------------------------------------------------------------------------
+  mongo:
+    image: mongo:7.0
+    container_name: taskpilot-mongo
+    restart: unless-stopped
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    ports:
+      - "27017:27017"
+    volumes:
+      - taskpilot-mongo-data:/data/db
+      - taskpilot-mongo-config:/data/configdb
+    networks:
+      - taskpilot-net
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --eval 'db.adminCommand(\"ping\").ok' --quiet | grep -q 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ----------------------------------------------------------------------------
+  # 2. Ephemeral MongoDB Replica Set Initializer
+  # ----------------------------------------------------------------------------
+  mongo-init:
+    image: mongo:7.0
+    container_name: taskpilot-mongo-init
+    restart: "no"
+    depends_on:
+      mongo:
+        condition: service_healthy
+    networks:
+      - taskpilot-net
+    entrypoint:
+      - "bash"
+      - "-c"
+      - |
+        echo "Validating and initializing MongoDB replica set 'rs0'..."
+        mongosh --host mongo:27017 --eval "
+          try {
+            var status = rs.status();
+            if (status.ok === 1) {
+              console.log('Replica set rs0 is already active and healthy.');
+            }
+          } catch(e) {
+            console.log('Initiating replica set rs0...');
+            var initRes = rs.initiate({
+              _id: 'rs0',
+              members: [{ _id: 0, host: 'mongo:27017' }]
+            });
+            console.log(JSON.stringify(initRes));
+          }
+        "
+        echo "MongoDB replica set initialization complete."
+
+  # ----------------------------------------------------------------------------
+  # 3. FastAPI Python Backend Service
+  # ----------------------------------------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: taskpilot-backend
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+      mongo-init:
+        condition: service_completed_successfully
+    ports:
+      - "8000:8000"
+    environment:
+      # Network & App
+      - HOST=0.0.0.0
+      - PORT=8000
+      - ENVIRONMENT=production
+      - FRONTEND_URL=http://localhost
+      - CORS_ORIGINS=["http://localhost","http://localhost:80","http://localhost:3000","http://127.0.0.1:3000"]
+      # Database Connection (Replica Set URI)
+      - MONGO_URI=mongodb://mongo:27017/?replicaSet=rs0
+      - MONGO_DB_NAME=taskpilot_db
+      # Security (Override with secure secret in production)
+      - JWT_SECRET=change_this_to_a_cryptographically_secure_256_bit_secret_key_in_prod
+      - ALGORITHM=HS256
+      - ACCESS_TOKEN_EXPIRE_MINUTES=1440
+      - REFRESH_TOKEN_EXPIRE_DAYS=7
+      # AI & Gemini Acceleration (Mount from host environment or specify)
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.5-flash}
+      - GEMINI_FALLBACK_MODELS=${GEMINI_FALLBACK_MODELS:-["gemini-2.0-flash","gemini-1.5-flash","gemini-1.5-pro"]}
+      - GEMINI_EMBEDDING_MODEL=${GEMINI_EMBEDDING_MODEL:-text-embedding-004}
+      - GEMINI_TEMPERATURE=0.2
+      - AI_RATE_LIMIT_PER_MINUTE=30
+      - AI_DAILY_TOKEN_QUOTA=50000
+      # Upload Limits
+      - MAX_FILE_SIZE_MB=10
+    networks:
+      - taskpilot-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # ----------------------------------------------------------------------------
+  # 4. React Vite Frontend Web Application (Nginx)
+  # ----------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - VITE_API_BASE_URL=http://localhost:8000/api
+        - VITE_APP_NAME=TaskPilot
+        - VITE_ENABLE_AI_FEATURES=true
+    container_name: taskpilot-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "3000:80"
+    networks:
+      - taskpilot-net
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+# ------------------------------------------------------------------------------
+# Storage Volumes & Networks
+# ------------------------------------------------------------------------------
+volumes:
+  taskpilot-mongo-data:
+    driver: local
+  taskpilot-mongo-config:
+    driver: local
+
+networks:
+  taskpilot-net:
+    driver: bridge
