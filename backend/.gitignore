@@ -38,4 +38,5 @@ htmlcov/
 
 # HuggingFace / PyTorch models
 .cache/
-models/
+/models/
+!app/models/
