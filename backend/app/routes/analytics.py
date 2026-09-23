@@ -207,7 +207,11 @@ async def get_dashboard_analytics(
         if not task_due:
             continue
         pid = str(t.get("project_id", ""))
-        is_past = task_due < now if isinstance(task_due, datetime) else False
+        if isinstance(task_due, datetime):
+            task_due_cmp = task_due.replace(tzinfo=timezone.utc) if task_due.tzinfo is None else task_due
+            is_past = task_due_cmp < now
+        else:
+            is_past = False
         upcoming_deadlines.append(
             UpcomingTaskItem(
                 id=str(t["_id"]),
